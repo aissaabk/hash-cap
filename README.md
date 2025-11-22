@@ -36,7 +36,7 @@ The **WiFi Handshake Cracker** is a sophisticated penetration testing tool desig
 
 ### 📱 Cross-Platform
 - **Linux support** (Debian, Ubuntu, CentOS, Arch)
-- **Android Termux compatibility**
+- **Android Termux compatibility inside nethunter or proot-distro**
 - **Online & offline operation**
 - **Multiple package manager support**
 
@@ -65,10 +65,10 @@ The script automatically installs these if missing:
 ### Linux Installation
 ```bash
 # Clone or download the script
-wget https://raw.githubusercontent.com/aissaabk/wifi-cracker/main/wifi_cracker.sh
+wcracker/main/wifi_cracker.sh
 
 # Make executable
 chmod +x wifi_cracker.sh
 
-# Run with test file to verify
+# Run with test fi to verify
 ./wifi_cracker.sh --test
