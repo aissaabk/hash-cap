@@ -3,7 +3,7 @@
 # =============================================================================
 # WiFi Handshake Cracker Tool
 # Developer: Aissa Abk
-# Version: 2.3 - Enhanced Extraction
+# Version: 2.4 - Fixed Extraction
 # GitHub: www.github.aissaabk
 # Facebook: www.facebook.com/devbelmel
 # =============================================================================
@@ -37,8 +37,8 @@ show_help() {
 }
 
 show_version() {
-    echo "WiFi Handshake Cracker Tool v2.3"
-    echo "Enhanced aircrack-ng based extraction"
+    echo "WiFi Handshake Cracker Tool v2.4"
+    echo "Fixed BSSID extraction"
     echo "Developed by Aissa Abk"
 }
 
@@ -167,11 +167,11 @@ extract_from_cap_content() {
     local bssid=""
     local essid=""
     
-    echo "🔍 Analyzing cap file using aircrack-ng..."
+    echo "🔍 Analyzing cap file using aircrack-ng..." >&2
     
     # Use aircrack-ng to analyze the capture file
     if command -v aircrack-ng &> /dev/null; then
-        echo "📡 Running aircrack-ng analysis..."
+        echo "📡 Running aircrack-ng analysis..." >&2
         
         # Run aircrack-ng and capture output
         local air_output
@@ -193,11 +193,11 @@ extract_from_cap_content() {
         handshake_detected=$(echo "$air_output" | grep -c "handshake")
         
         if [ -n "$bssid" ]; then
-            echo "✅ Aircrack-ng analysis successful"
+            echo "✅ Aircrack-ng analysis successful" >&2
             if [ "$handshake_detected" -gt 0 ]; then
-                echo "✅ Handshake detected in capture file"
+                echo "✅ Handshake detected in capture file" >&2
             else
-                echo "⚠️  No handshake detected - may not be able to crack"
+                echo "⚠️  No handshake detected - may not be able to crack" >&2
             fi
             echo "$bssid|$essid"
             return 0
@@ -205,7 +205,7 @@ extract_from_cap_content() {
     fi
     
     # Fallback to strings method if aircrack-ng fails
-    echo "⚠️  Aircrack-ng extraction failed, trying alternative methods..."
+    echo "⚠️  Aircrack-ng extraction failed, trying alternative methods..." >&2
     
     if command -v strings &> /dev/null; then
         # Method 1: Use strings to find MAC addresses
@@ -241,7 +241,7 @@ extract_from_filename() {
     local mac=""
     local timestamp=""
     
-    echo "📁 Extracting from filename..."
+    echo "📁 Extracting from filename..." >&2
     
     # Extract BSSID-like middle identifier
     bssid=$(echo "$filename" | cut -d "_" -f 2)
@@ -273,7 +273,7 @@ verify_handshake() {
     local file="$1"
     local bssid="$2"
     
-    echo "🔎 Verifying handshake with aircrack-ng..."
+    echo "🔎 Verifying handshake with aircrack-ng..." >&2
     
     if command -v aircrack-ng &> /dev/null; then
         # Run aircrack-ng to check for handshake
@@ -281,15 +281,34 @@ verify_handshake() {
         verification=$(aircrack-ng "$file" -b "$bssid" 2>/dev/null | grep -i "handshake")
         
         if [ -n "$verification" ]; then
-            echo "✅ Valid WPA handshake confirmed"
+            echo "✅ Valid WPA handshake confirmed" >&2
             return 0
         else
-            echo "❌ No valid handshake found for BSSID: $bssid"
+            echo "❌ No valid handshake found for BSSID: $bssid" >&2
             return 1
         fi
     else
-        echo "⚠️  Cannot verify - aircrack-ng not available"
+        echo "⚠️  Cannot verify - aircrack-ng not available" >&2
         return 2
+    fi
+}
+
+# Function to clean and validate MAC address
+clean_mac_address() {
+    local mac="$1"
+    # Remove any non-MAC characters and ensure proper format
+    mac=$(echo "$mac" | grep -oE '([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}' | head -1)
+    mac=$(echo "$mac" | sed 's/-/:/g' | tr '[:lower:]' '[:upper:]')
+    echo "$mac"
+}
+
+# Function to validate MAC address format
+validate_mac() {
+    local mac="$1"
+    if [[ "$mac" =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]]; then
+        return 0
+    else
+        return 1
     fi
 }
 
@@ -351,12 +370,16 @@ check_and_install_tools
 echo "🔍 Analyzing file to extract network information..."
 
 # First try to extract from cap file content using aircrack-ng
-if result=$(extract_from_cap_content "$FILEPATH"); then
+if result=$(extract_from_cap_content "$FILEPATH" 2>/dev/null); then
     echo "✅ Successfully extracted from cap file content"
     BSSID=$(echo "$result" | cut -d "|" -f 1)
     ESSID=$(echo "$result" | cut -d "|" -f 2)
     MAC="$BSSID"
     EXTRACTION_METHOD="aircrack-ng_analysis"
+    
+    # Clean and validate MAC address
+    BSSID=$(clean_mac_address "$BSSID")
+    MAC=$(clean_mac_address "$MAC")
     
     # Verify the handshake
     verify_handshake "$FILEPATH" "$BSSID"
@@ -368,20 +391,32 @@ else
     MAC=$(echo "$result" | cut -d "|" -f 2)
     TIMESTAMP=$(echo "$result" | cut -d "|" -f 3)
     EXTRACTION_METHOD="filename"
+    
+    # Clean and validate MAC addresses
+    BSSID=$(clean_mac_address "$BSSID")
+    MAC=$(clean_mac_address "$MAC")
 fi
 
-# Final validation - if still no BSSID/MAC, ask user
-if [ -z "$BSSID" ] || [ -z "$MAC" ]; then
-    echo "❌ Could not automatically extract BSSID/MAC"
+# Final validation - if still no valid BSSID/MAC, ask user
+if [ -z "$BSSID" ] || ! validate_mac "$BSSID"; then
+    echo "❌ Could not automatically extract valid BSSID/MAC"
     echo "Please enter the target information manually:"
-    read -p "BSSID/MAC address: " BSSID
+    while true; do
+        read -p "BSSID/MAC address (format: 00:11:22:33:44:55): " BSSID
+        BSSID=$(clean_mac_address "$BSSID")
+        if validate_mac "$BSSID"; then
+            break
+        else
+            echo "❌ Invalid MAC format. Please use format: 00:11:22:33:44:55"
+        fi
+    done
     MAC="$BSSID"
     EXTRACTION_METHOD="manual"
 fi
 
-# Clean up MAC address format
-BSSID=$(echo "$BSSID" | sed 's/-/:/g' | tr '[:lower:]' '[:upper:]')
-MAC=$(echo "$MAC" | sed 's/-/:/g' | tr '[:lower:]' '[:upper:]')
+# Final cleanup
+BSSID=$(clean_mac_address "$BSSID")
+MAC=$(clean_mac_address "$MAC")
 
 # --------------------------------------------------------------------
 # Display extracted information
@@ -391,7 +426,7 @@ echo "=== Extracted Information ==="
 echo "Extraction method: $EXTRACTION_METHOD"
 echo "BSSID:            $BSSID"
 echo "MAC Address:      $MAC"
-if [ -n "$ESSID" ]; then
+if [ -n "$ESSID" ] && [ "$ESSID" != " " ]; then
     echo "Network ESSID:    $ESSID"
 fi
 if [ -n "$TIMESTAMP" ]; then
@@ -421,7 +456,7 @@ while true; do
     echo "=== Parameter Selection ==="
     echo "1) Use default arguments (recommended)"
     echo "2) Enter custom arguments"
-    if [ -n "$ESSID" ]; then
+    if [ -n "$ESSID" ] && [ "$ESSID" != " " ]; then
         echo "3) Use ESSID-based pattern"
     fi
     echo "4) Show aircrack-ng analysis"
@@ -462,7 +497,7 @@ while true; do
             ;;
 
         3)
-            if [ -n "$ESSID" ]; then
+            if [ -n "$ESSID" ] && [ "$ESSID" != " " ]; then
                 ARG1="8"
                 ARG2="12"
                 # Create pattern based on ESSID (first 4 chars as uppercase, rest as lowercase)
@@ -505,7 +540,7 @@ done
 # Final command execution
 # --------------------------------------------------------------------
 echo "🎯 Final command:"
-echo "crunch $ARG1 $ARG2 -t \"$ARG3\" --stdout | aircrack-ng -w- -b \"$MAC\" \"$FILEPATH\""
+echo "crunch $ARG1 $ARG2 -t \"$ARG3\" --stdout | aircrack-ng -w- -b \"$BSSID\" \"$FILEPATH\""
 echo ""
 
 # Final check for required tools
@@ -521,12 +556,19 @@ if ! command -v aircrack-ng &> /dev/null; then
     exit 1
 fi
 
+# Final MAC validation before execution
+if ! validate_mac "$BSSID"; then
+    echo "❌ Error: Invalid BSSID format: $BSSID"
+    echo "💡 BSSID must be in format: 00:11:22:33:44:55"
+    exit 1
+fi
+
 read -p "Run this command? (y/n): " CONFIRM
 if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
     echo "🚀 Starting attack..."
     echo "⏳ This may take a while. Press Ctrl+C to stop."
     echo ""
-    crunch $ARG1 $ARG2 -t "$ARG3" --stdout | aircrack-ng -w- -b "$MAC" "$FILEPATH"
+    crunch $ARG1 $ARG2 -t "$ARG3" --stdout | aircrack-ng -w- -b "$BSSID" "$FILEPATH"
 else
     echo "❌ Cancelled."
 fi
